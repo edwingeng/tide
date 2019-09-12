@@ -1,2 +1,2 @@
 # acrobat
-Acrobat processes data in a lazy manner.
+Acrobat processes data in a lazy yet delicate manner
