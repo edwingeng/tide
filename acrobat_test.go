@@ -1,6 +1,8 @@
 package acrobat
 
 import (
+	"math/rand"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -9,11 +11,15 @@ import (
 )
 
 type counter struct {
-	n int32
+	n int64
 }
 
 func (this *counter) count(a []interface{}) {
-	atomic.AddInt32(&this.n, int32(len(a)))
+	atomic.AddInt64(&this.n, int64(len(a)))
+}
+
+func (this *counter) N() int64 {
+	return atomic.LoadInt64(&this.n)
 }
 
 func TestAcrobat_BigDelay(t *testing.T) {
@@ -46,7 +52,7 @@ func TestAcrobat_BigDelay(t *testing.T) {
 	if acr.QueueLen() != 0 {
 		t.Fatalf("the length of acr.cmdQueue should be 0. len: %d", acr.QueueLen())
 	}
-	if v := atomic.LoadInt32(&c.n); v != 12 {
+	if v := c.N(); v != 12 {
 		t.Fatalf("c.n should be 12. c.n: %d", v)
 	}
 
@@ -85,7 +91,7 @@ func TestAcrobat_BigCapacity(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		for range time.Tick(time.Millisecond * 5) {
-			if atomic.LoadInt32(&c.n) > 0 {
+			if c.N() > 0 {
 				close(done)
 				return
 			}
@@ -99,7 +105,7 @@ func TestAcrobat_BigCapacity(t *testing.T) {
 	if acr.QueueLen() != 0 {
 		t.Fatalf("the length of acr.cmdQueue should be 0. len: %d", acr.QueueLen())
 	}
-	if v := atomic.LoadInt32(&c.n); v != 12 {
+	if v := c.N(); v != 12 {
 		t.Fatalf("c.n should be 12. c.n: %d", v)
 	}
 }
@@ -110,4 +116,43 @@ func TestAcrobat_NilFn(t *testing.T) {
 	}()
 	NewAcrobat("test", 1, time.Second, nil)
 	t.Fatal("no panic")
+}
+
+func TestAcrobat_Stress(t *testing.T) {
+	var scav slog.Scavenger
+	var c counter
+	acr := NewAcrobat("test", 10, time.Second*10, c.count, WithLogger(&scav), WithBeatInterval(time.Millisecond))
+	acr.Launch()
+	defer func() {
+		acr.ticker.Stop()
+	}()
+
+	const numGoroutines = 2000
+	const maxNumJobs = 10000
+	var total int64
+	var wg sync.WaitGroup
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			time.Sleep(time.Duration(rand.Intn(20)) * time.Millisecond)
+			n := rand.Intn(maxNumJobs)
+			atomic.AddInt64(&total, int64(n))
+			for j := 0; j < n; j++ {
+				acr.Push(j)
+			}
+		}()
+	}
+
+	wg.Wait()
+	time.Sleep(time.Millisecond * 20)
+	if c.N() != atomic.LoadInt64(&total) {
+		t.Fatal("c.N() != atomic.LoadInt64(&total)")
+	}
+	if c.N() != acr.NumProcessed() {
+		t.Fatal("c.N() != acr.NumProcessed()")
+	}
+	if scav.Len() != 1 {
+		t.Fatal("scav.Len() != 1")
+	}
 }
