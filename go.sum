@@ -1,4 +1,4 @@
 github.com/edwingeng/deque v0.0.0-20190213021550-4e71c3b24abc h1:3nKGrI2E3/2RGzM9ltm40UczghM7E/vlKvF88fmwZVw=
 github.com/edwingeng/deque v0.0.0-20190213021550-4e71c3b24abc/go.mod h1:N7ReYb/cxuJggjrpABmaE/Pw2Q9JlTEk8lTCreG1BbU=
-github.com/edwingeng/slog v0.0.0-20190912084401-0da3dfc69e84 h1:Ja0o0o3pOs1WjGr9b/NA5UV1R0ELpfPw1MKS4IcdXlE=
-github.com/edwingeng/slog v0.0.0-20190912084401-0da3dfc69e84/go.mod h1:g3bFHx27qq2CKFvaeya0LS+cKa3dOiYrSdqHeAxWYT0=
+github.com/edwingeng/slog v0.0.0-20190916035712-460b339b0243 h1:YsaOLbDcpiA25UIcIuuWDRcE9mLF3GvcLmUlsyokNJ4=
+github.com/edwingeng/slog v0.0.0-20190916035712-460b339b0243/go.mod h1:g3bFHx27qq2CKFvaeya0LS+cKa3dOiYrSdqHeAxWYT0=
