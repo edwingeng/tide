@@ -14,8 +14,8 @@ type counter struct {
 	n int64
 }
 
-func (this *counter) count(a []interface{}) {
-	atomic.AddInt64(&this.n, int64(len(a)))
+func (this *counter) count(arr []interface{}) {
+	atomic.AddInt64(&this.n, int64(len(arr)))
 }
 
 func (this *counter) N() int64 {

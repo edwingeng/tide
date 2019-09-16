@@ -11,7 +11,7 @@ import (
 	"github.com/edwingeng/slog"
 )
 
-type Func func(a []interface{})
+type Func func(arr []interface{})
 
 type Acrobat struct {
 	slog.Logger
