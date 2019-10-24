@@ -2,6 +2,7 @@ package acrobat
 
 import (
 	"math/rand"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -154,5 +155,49 @@ func TestAcrobat_Stress(t *testing.T) {
 	}
 	if scav.Len() != 1 {
 		t.Fatal("scav.Len() != 1")
+	}
+}
+
+func TestAcrobat_PushUnique(t *testing.T) {
+	var scav slog.Scavenger
+	var c counter
+	acr := NewAcrobat("test", 10, time.Millisecond, c.count, WithLogger(&scav), WithBeatInterval(time.Millisecond))
+
+	acr.PushUnique(1, 100)
+	if acr.QueueLen() != 1 {
+		t.Fatal("acr.QueueLen() != 1")
+	}
+	acr.PushUnique(1, 100)
+	if acr.QueueLen() != 1 {
+		t.Fatal("acr.QueueLen() != 1")
+	}
+	acr.PushUnique(2, 200)
+	if acr.QueueLen() != 2 {
+		t.Fatal("acr.QueueLen() != 2")
+	}
+	acr.PushUnique(2, 200)
+	if acr.QueueLen() != 2 {
+		t.Fatal("acr.QueueLen() != 2")
+	}
+
+	acr.Push(1)
+	acr.Push(2)
+	if acr.QueueLen() != 4 {
+		t.Fatal("acr.QueueLen() != 4")
+	}
+
+	acr.Launch()
+	defer func() {
+		acr.ticker.Stop()
+	}()
+
+	for c.N() == 0 {
+		runtime.Gosched()
+	}
+	acr.mu.Lock()
+	leN := len(acr.unique)
+	acr.mu.Unlock()
+	if leN != 0 {
+		t.Fatal("leN != 0")
 	}
 }

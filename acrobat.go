@@ -22,6 +22,7 @@ type Acrobat struct {
 	fn           Func
 
 	ticker *time.Ticker
+	unique map[interface{}]struct{}
 
 	once         sync.Once
 	numProcessed int64
@@ -44,16 +45,17 @@ func NewAcrobat(name string, maxLen int, maxDelay time.Duration, fn Func, opts .
 		maxDelay:     maxDelay,
 		fn:           fn,
 		dq:           deque.NewDeque(),
+		unique:       make(map[interface{}]struct{}),
 	}
 	for _, opt := range opts {
 		opt(acrobat)
 	}
-	acrobat.ticker = time.NewTicker(acrobat.beatInterval)
 	return
 }
 
 func (this *Acrobat) Launch() {
 	this.once.Do(func() {
+		this.ticker = time.NewTicker(this.beatInterval)
 		go this.engine()
 	})
 }
@@ -72,6 +74,13 @@ func (this *Acrobat) engine() {
 			this.mu.Lock()
 			a := this.dq.DequeueMany(0)
 			this.startTime = time.Time{}
+			if leN := len(this.unique); leN < 16 {
+				for k := range this.unique {
+					delete(this.unique, k)
+				}
+			} else {
+				this.unique = make(map[interface{}]struct{}, leN)
+			}
 			this.mu.Unlock()
 			if len(a) > 0 {
 				this.process(a)
@@ -97,6 +106,21 @@ func (this *Acrobat) Push(v interface{}) {
 		this.startTime = time.Now()
 	}
 	this.dq.Enqueue(v)
+	this.mu.Unlock()
+}
+
+func (this *Acrobat) PushUnique(v interface{}, hint interface{}) {
+	this.mu.Lock()
+	if _, ok := this.unique[hint]; ok {
+		this.mu.Unlock()
+		return
+	}
+	switch this.dq.Empty() {
+	case true:
+		this.startTime = time.Now()
+	}
+	this.dq.Enqueue(v)
+	this.unique[hint] = struct{}{}
 	this.mu.Unlock()
 }
 
