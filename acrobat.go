@@ -1,6 +1,7 @@
 package acrobat
 
 import (
+	"context"
 	"fmt"
 	"runtime/debug"
 	"sync"
@@ -31,6 +32,7 @@ type Acrobat struct {
 	dq deque.Deque
 
 	startTime time.Time
+	stop      chan chan struct{}
 }
 
 func NewAcrobat(name string, maxLen int, maxDelay time.Duration, fn Func, opts ...Option) (acrobat *Acrobat) {
@@ -46,6 +48,7 @@ func NewAcrobat(name string, maxLen int, maxDelay time.Duration, fn Func, opts .
 		fn:           fn,
 		dq:           deque.NewDeque(),
 		unique:       make(map[interface{}]int),
+		stop:         make(chan chan struct{}, 1),
 	}
 	for _, opt := range opts {
 		opt(acrobat)
@@ -62,29 +65,46 @@ func (this *Acrobat) Launch() {
 
 func (this *Acrobat) engine() {
 	this.Infof("<acrobat.%s> started", this.name)
-	for range this.ticker.C {
-		this.mu.Lock()
-		n := this.dq.Len()
-		t := this.startTime
-		this.mu.Unlock()
-		if n == 0 {
-			continue
+	for {
+		select {
+		case <-this.ticker.C:
+			this.engineImpl(false)
+		case ch := <-this.stop:
+			this.engineImpl(true)
+			close(ch)
+			return
 		}
-		if n >= this.maxLen || (!t.IsZero() && time.Now().Sub(t) >= this.maxDelay) {
-			this.mu.Lock()
-			a := this.dq.DequeueMany(0)
-			this.startTime = time.Time{}
-			if leN := len(this.unique); leN < 16 {
+	}
+}
+
+func (this *Acrobat) engineImpl(force bool) {
+	this.mu.Lock()
+	n := this.dq.Len()
+	t := this.startTime
+	this.mu.Unlock()
+	if n == 0 {
+		return
+	}
+
+	if n >= this.maxLen || !t.IsZero() && time.Now().Sub(t) >= this.maxDelay || force {
+		this.mu.Lock()
+		a := this.dq.DequeueMany(0)
+		this.startTime = time.Time{}
+		if l := len(this.unique); l > 0 {
+			switch {
+			case l < 16:
 				for k := range this.unique {
 					delete(this.unique, k)
 				}
-			} else {
-				this.unique = make(map[interface{}]int, leN)
+			case l < 1024:
+				this.unique = make(map[interface{}]int, l)
+			default:
+				this.unique = make(map[interface{}]int, 1024)
 			}
-			this.mu.Unlock()
-			if len(a) > 0 {
-				this.process(a)
-			}
+		}
+		this.mu.Unlock()
+		if len(a) > 0 {
+			this.process(a)
 		}
 	}
 }
@@ -97,6 +117,18 @@ func (this *Acrobat) process(a []interface{}) {
 	}()
 	this.fn(a)
 	atomic.AddInt64(&this.numProcessed, int64(len(a)))
+}
+
+func (this *Acrobat) Shutdown(ctx context.Context) error {
+	this.ticker.Stop()
+	ch := make(chan struct{})
+	this.stop <- ch
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (this *Acrobat) Push(v interface{}) {

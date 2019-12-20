@@ -1,7 +1,9 @@
 package acrobat
 
 import (
+	"context"
 	"math/rand"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -209,5 +211,42 @@ func TestAcrobat_PushUnique(t *testing.T) {
 	acr.mu.Unlock()
 	if leN != 0 {
 		t.Fatal("leN != 0")
+	}
+}
+
+func TestAcrobat_Shutdown1(t *testing.T) {
+	var log slog.DumbLogger
+	var c counter
+	acr := NewAcrobat("test", 10, time.Second*10, c.count, WithLogger(&log), WithBeatInterval(time.Millisecond))
+	acr.Push(100)
+	acr.Push(200)
+	acr.Push(300)
+
+	acr.Launch()
+	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Millisecond*100)
+	defer cancel1()
+	if err := acr.Shutdown(ctx1); err != nil {
+		t.Fatal(err)
+	}
+	if c.N() != 3 {
+		t.Fatal("c.N() != 3")
+	}
+}
+
+func TestAcrobat_Shutdown2(t *testing.T) {
+	var log slog.DumbLogger
+	sleep := func(arr []interface{}) {
+		time.Sleep(time.Millisecond * 100)
+	}
+	acr := NewAcrobat("test", 10, time.Second*10, sleep, WithLogger(&log), WithBeatInterval(time.Millisecond))
+	acr.Push(100)
+	acr.Push(200)
+	acr.Push(300)
+
+	acr.Launch()
+	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel1()
+	if err := acr.Shutdown(ctx1); err == nil || !os.IsTimeout(err) {
+		t.Fatal("Shutdown should return a timeout error")
 	}
 }
