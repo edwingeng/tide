@@ -22,7 +22,7 @@ type Acrobat struct {
 	fn           Func
 
 	ticker *time.Ticker
-	unique map[interface{}]struct{}
+	unique map[interface{}]int
 
 	once         sync.Once
 	numProcessed int64
@@ -45,7 +45,7 @@ func NewAcrobat(name string, maxLen int, maxDelay time.Duration, fn Func, opts .
 		maxDelay:     maxDelay,
 		fn:           fn,
 		dq:           deque.NewDeque(),
-		unique:       make(map[interface{}]struct{}),
+		unique:       make(map[interface{}]int),
 	}
 	for _, opt := range opts {
 		opt(acrobat)
@@ -79,7 +79,7 @@ func (this *Acrobat) engine() {
 					delete(this.unique, k)
 				}
 			} else {
-				this.unique = make(map[interface{}]struct{}, leN)
+				this.unique = make(map[interface{}]int, leN)
 			}
 			this.mu.Unlock()
 			if len(a) > 0 {
@@ -109,9 +109,12 @@ func (this *Acrobat) Push(v interface{}) {
 	this.mu.Unlock()
 }
 
-func (this *Acrobat) PushUnique(v interface{}, hint interface{}) {
+func (this *Acrobat) PushUnique(v interface{}, hint interface{}, overwrite bool) {
 	this.mu.Lock()
-	if _, ok := this.unique[hint]; ok {
+	if idx, ok := this.unique[hint]; ok {
+		if overwrite {
+			this.dq.Replace(idx, v)
+		}
 		this.mu.Unlock()
 		return
 	}
@@ -120,7 +123,8 @@ func (this *Acrobat) PushUnique(v interface{}, hint interface{}) {
 		this.startTime = time.Now()
 	}
 	this.dq.Enqueue(v)
-	this.unique[hint] = struct{}{}
+	n := this.dq.Len()
+	this.unique[hint] = n - 1
 	this.mu.Unlock()
 }
 

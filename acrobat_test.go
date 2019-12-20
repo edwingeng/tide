@@ -163,21 +163,31 @@ func TestAcrobat_PushUnique(t *testing.T) {
 	var c counter
 	acr := NewAcrobat("test", 10, time.Millisecond, c.count, WithLogger(&scav), WithBeatInterval(time.Millisecond))
 
-	acr.PushUnique(1, 100)
+	acr.PushUnique(1, 100, false)
 	if acr.QueueLen() != 1 {
 		t.Fatal("acr.QueueLen() != 1")
 	}
-	acr.PushUnique(1, 100)
+	acr.PushUnique(1, 100, false)
 	if acr.QueueLen() != 1 {
 		t.Fatal("acr.QueueLen() != 1")
 	}
-	acr.PushUnique(2, 200)
+	acr.PushUnique(2, 200, false)
 	if acr.QueueLen() != 2 {
 		t.Fatal("acr.QueueLen() != 2")
 	}
-	acr.PushUnique(2, 200)
+	acr.PushUnique(5, 200, false)
 	if acr.QueueLen() != 2 {
 		t.Fatal("acr.QueueLen() != 2")
+	}
+	if acr.dq.Peek(1) != 2 {
+		t.Fatal(acr.dq.Peek(1) != 2)
+	}
+	acr.PushUnique(5, 200, true)
+	if acr.QueueLen() != 2 {
+		t.Fatal("acr.QueueLen() != 2")
+	}
+	if acr.dq.Peek(1) != 5 {
+		t.Fatal(acr.dq.Peek(1) != 5)
 	}
 
 	acr.Push(1)
