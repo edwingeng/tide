@@ -90,16 +90,9 @@ func (this *Acrobat) engineImpl(force bool) {
 		this.mu.Lock()
 		a := this.dq.DequeueMany(0)
 		this.startTime = time.Time{}
-		if l := len(this.unique); l > 0 {
-			switch {
-			case l < 16:
-				for k := range this.unique {
-					delete(this.unique, k)
-				}
-			case l < 1024:
-				this.unique = make(map[interface{}]int, l)
-			default:
-				this.unique = make(map[interface{}]int, 1024)
+		if len(this.unique) > 0 {
+			for k := range this.unique {
+				delete(this.unique, k)
 			}
 		}
 		this.mu.Unlock()
