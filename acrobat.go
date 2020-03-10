@@ -8,11 +8,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/edwingeng/deque"
+	"github.com/edwingeng/live"
 	"github.com/edwingeng/slog"
 )
 
-type Func func(arr []interface{})
+type Func func(arr []live.Data)
 
 type Acrobat struct {
 	slog.Logger
@@ -29,7 +29,7 @@ type Acrobat struct {
 	numProcessed int64
 
 	mu sync.Mutex
-	dq deque.Deque
+	dq *Deque
 
 	startTime time.Time
 	stop      chan chan struct{}
@@ -46,7 +46,7 @@ func NewAcrobat(name string, maxLen int, maxDelay time.Duration, fn Func, opts .
 		maxLen:       maxLen,
 		maxDelay:     maxDelay,
 		fn:           fn,
-		dq:           deque.NewDeque(),
+		dq:           NewDeque(),
 		unique:       make(map[interface{}]int),
 		stop:         make(chan chan struct{}, 1),
 	}
@@ -102,7 +102,7 @@ func (this *Acrobat) engineImpl(force bool) {
 	}
 }
 
-func (this *Acrobat) process(a []interface{}) {
+func (this *Acrobat) process(a []live.Data) {
 	defer func() {
 		if r := recover(); r != nil {
 			this.Error(fmt.Sprintf("<acrobat.%s> panic: %+v\n%s", this.name, r, debug.Stack()))
@@ -124,7 +124,7 @@ func (this *Acrobat) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (this *Acrobat) Push(v interface{}) {
+func (this *Acrobat) Push(v live.Data) {
 	this.mu.Lock()
 	switch this.dq.Empty() {
 	case true:
@@ -134,7 +134,7 @@ func (this *Acrobat) Push(v interface{}) {
 	this.mu.Unlock()
 }
 
-func (this *Acrobat) PushUnique(v interface{}, hint interface{}, overwrite bool) {
+func (this *Acrobat) PushUnique(v live.Data, hint interface{}, overwrite bool) {
 	this.mu.Lock()
 	if idx, ok := this.unique[hint]; ok {
 		if overwrite {

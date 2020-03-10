@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edwingeng/live"
 	"github.com/edwingeng/slog"
 )
 
@@ -17,7 +18,7 @@ type counter struct {
 	n int64
 }
 
-func (this *counter) count(arr []interface{}) {
+func (this *counter) count(arr []live.Data) {
 	atomic.AddInt64(&this.n, int64(len(arr)))
 }
 
@@ -29,8 +30,9 @@ func TestAcrobat_BigDelay(t *testing.T) {
 	var log slog.DumbLogger
 	var c counter
 	acr := NewAcrobat("test", 10, time.Second*10, c.count, WithLogger(&log), WithBeatInterval(time.Millisecond))
-	acr.Push(100)
-	acr.Push(nil)
+	liveHelper := live.NewHelper(nil, nil)
+	acr.Push(liveHelper.WrapInt(100))
+	acr.Push(live.Nil)
 	if acr.QueueLen() != 2 {
 		t.Fatalf("the length of acr.cmdQueue should be 2. len: %d", acr.QueueLen())
 	}
@@ -47,7 +49,7 @@ func TestAcrobat_BigDelay(t *testing.T) {
 
 	acr.mu.Lock()
 	for i := 0; i < 10; i++ {
-		acr.dq.Enqueue(200)
+		acr.dq.Enqueue(liveHelper.WrapInt(200))
 	}
 	acr.mu.Unlock()
 
@@ -66,7 +68,7 @@ func TestAcrobat_BigDelay(t *testing.T) {
 		t.Fatal("startTime should be zero now")
 	}
 
-	acr.Push(300)
+	acr.Push(liveHelper.WrapInt(300))
 	acr.mu.Lock()
 	startTime2 := acr.startTime
 	acr.mu.Unlock()
@@ -84,8 +86,9 @@ func TestAcrobat_BigCapacity(t *testing.T) {
 		acr.ticker.Stop()
 	}()
 
+	liveHelper := live.NewHelper(nil, nil)
 	for i := 0; i < 12; i++ {
-		acr.Push(200)
+		acr.Push(liveHelper.WrapInt(200))
 	}
 	if acr.QueueLen() != 12 {
 		t.Fatalf("the length of acr.cmdQueue should be 12. len: %d", acr.QueueLen())
@@ -130,6 +133,7 @@ func TestAcrobat_Stress(t *testing.T) {
 		acr.ticker.Stop()
 	}()
 
+	liveHelper := live.NewHelper(nil, nil)
 	const numGoroutines = 2000
 	const maxNumJobs = 10000
 	var total int64
@@ -142,7 +146,7 @@ func TestAcrobat_Stress(t *testing.T) {
 			n := rand.Intn(maxNumJobs)
 			atomic.AddInt64(&total, int64(n))
 			for j := 0; j < n; j++ {
-				acr.Push(j)
+				acr.Push(liveHelper.WrapInt(j))
 			}
 		}()
 	}
@@ -165,35 +169,36 @@ func TestAcrobat_PushUnique(t *testing.T) {
 	var c counter
 	acr := NewAcrobat("test", 10, time.Millisecond, c.count, WithLogger(&scav), WithBeatInterval(time.Millisecond))
 
-	acr.PushUnique(1, 100, false)
+	liveHelper := live.NewHelper(nil, nil)
+	acr.PushUnique(liveHelper.WrapInt(1), 100, false)
 	if acr.QueueLen() != 1 {
 		t.Fatal("acr.QueueLen() != 1")
 	}
-	acr.PushUnique(1, 100, false)
+	acr.PushUnique(liveHelper.WrapInt(1), 100, false)
 	if acr.QueueLen() != 1 {
 		t.Fatal("acr.QueueLen() != 1")
 	}
-	acr.PushUnique(2, 200, false)
+	acr.PushUnique(liveHelper.WrapInt(2), 200, false)
 	if acr.QueueLen() != 2 {
 		t.Fatal("acr.QueueLen() != 2")
 	}
-	acr.PushUnique(5, 200, false)
+	acr.PushUnique(liveHelper.WrapInt(5), 200, false)
 	if acr.QueueLen() != 2 {
 		t.Fatal("acr.QueueLen() != 2")
 	}
-	if acr.dq.Peek(1) != 2 {
-		t.Fatal(acr.dq.Peek(1) != 2)
+	if acr.dq.Peek(1).ToInt() != 2 {
+		t.Fatal("acr.dq.Peek(1).ToInt() != 2")
 	}
-	acr.PushUnique(5, 200, true)
+	acr.PushUnique(liveHelper.WrapInt(5), 200, true)
 	if acr.QueueLen() != 2 {
 		t.Fatal("acr.QueueLen() != 2")
 	}
-	if acr.dq.Peek(1) != 5 {
-		t.Fatal(acr.dq.Peek(1) != 5)
+	if acr.dq.Peek(1).ToInt() != 5 {
+		t.Fatal("acr.dq.Peek(1).ToInt() != 5")
 	}
 
-	acr.Push(1)
-	acr.Push(2)
+	acr.Push(liveHelper.WrapInt(1))
+	acr.Push(liveHelper.WrapInt(2))
 	if acr.QueueLen() != 4 {
 		t.Fatal("acr.QueueLen() != 4")
 	}
@@ -218,9 +223,10 @@ func TestAcrobat_Shutdown1(t *testing.T) {
 	var log slog.DumbLogger
 	var c counter
 	acr := NewAcrobat("test", 10, time.Second*10, c.count, WithLogger(&log), WithBeatInterval(time.Millisecond))
-	acr.Push(100)
-	acr.Push(200)
-	acr.Push(300)
+	liveHelper := live.NewHelper(nil, nil)
+	acr.Push(liveHelper.WrapInt(100))
+	acr.Push(liveHelper.WrapInt(200))
+	acr.Push(liveHelper.WrapInt(300))
 
 	acr.Launch()
 	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Millisecond*100)
@@ -235,13 +241,14 @@ func TestAcrobat_Shutdown1(t *testing.T) {
 
 func TestAcrobat_Shutdown2(t *testing.T) {
 	var log slog.DumbLogger
-	sleep := func(arr []interface{}) {
+	sleep := func(arr []live.Data) {
 		time.Sleep(time.Millisecond * 100)
 	}
 	acr := NewAcrobat("test", 10, time.Second*10, sleep, WithLogger(&log), WithBeatInterval(time.Millisecond))
-	acr.Push(100)
-	acr.Push(200)
-	acr.Push(300)
+	liveHelper := live.NewHelper(nil, nil)
+	acr.Push(liveHelper.WrapInt(100))
+	acr.Push(liveHelper.WrapInt(200))
+	acr.Push(liveHelper.WrapInt(300))
 
 	acr.Launch()
 	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Millisecond)
