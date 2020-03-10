@@ -1,4 +1,4 @@
-module github.com/edwingeng/acrobat
+module github.com/edwingeng/tide
 
 go 1.12
 

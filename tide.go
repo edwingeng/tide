@@ -1,4 +1,4 @@
-package acrobat
+package tide
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 
 type Func func(arr []live.Data)
 
-type Acrobat struct {
+type Tide struct {
 	slog.Logger
 	name         string
 	beatInterval time.Duration
@@ -35,11 +35,11 @@ type Acrobat struct {
 	stop      chan chan struct{}
 }
 
-func NewAcrobat(name string, maxLen int, maxDelay time.Duration, fn Func, opts ...Option) (acrobat *Acrobat) {
+func NewTide(name string, maxLen int, maxDelay time.Duration, fn Func, opts ...Option) (tide *Tide) {
 	if fn == nil {
 		panic("fn cannot be nil")
 	}
-	acrobat = &Acrobat{
+	tide = &Tide{
 		name:         name,
 		Logger:       slog.ConsoleLogger{},
 		beatInterval: time.Millisecond * 100,
@@ -51,20 +51,20 @@ func NewAcrobat(name string, maxLen int, maxDelay time.Duration, fn Func, opts .
 		stop:         make(chan chan struct{}, 1),
 	}
 	for _, opt := range opts {
-		opt(acrobat)
+		opt(tide)
 	}
 	return
 }
 
-func (this *Acrobat) Launch() {
+func (this *Tide) Launch() {
 	this.once.Do(func() {
 		this.ticker = time.NewTicker(this.beatInterval)
 		go this.engine()
 	})
 }
 
-func (this *Acrobat) engine() {
-	this.Infof("<acrobat.%s> started", this.name)
+func (this *Tide) engine() {
+	this.Infof("<tide.%s> started", this.name)
 	for {
 		select {
 		case <-this.ticker.C:
@@ -77,7 +77,7 @@ func (this *Acrobat) engine() {
 	}
 }
 
-func (this *Acrobat) engineImpl(force bool) {
+func (this *Tide) engineImpl(force bool) {
 	this.mu.Lock()
 	n := this.dq.Len()
 	t := this.startTime
@@ -102,17 +102,17 @@ func (this *Acrobat) engineImpl(force bool) {
 	}
 }
 
-func (this *Acrobat) process(a []live.Data) {
+func (this *Tide) process(a []live.Data) {
 	defer func() {
 		if r := recover(); r != nil {
-			this.Error(fmt.Sprintf("<acrobat.%s> panic: %+v\n%s", this.name, r, debug.Stack()))
+			this.Error(fmt.Sprintf("<tide.%s> panic: %+v\n%s", this.name, r, debug.Stack()))
 		}
 	}()
 	this.fn(a)
 	atomic.AddInt64(&this.numProcessed, int64(len(a)))
 }
 
-func (this *Acrobat) Shutdown(ctx context.Context) error {
+func (this *Tide) Shutdown(ctx context.Context) error {
 	this.ticker.Stop()
 	ch := make(chan struct{})
 	this.stop <- ch
@@ -124,7 +124,7 @@ func (this *Acrobat) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (this *Acrobat) Push(v live.Data) {
+func (this *Tide) Push(v live.Data) {
 	this.mu.Lock()
 	switch this.dq.Empty() {
 	case true:
@@ -134,7 +134,7 @@ func (this *Acrobat) Push(v live.Data) {
 	this.mu.Unlock()
 }
 
-func (this *Acrobat) PushUnique(v live.Data, hint interface{}, overwrite bool) {
+func (this *Tide) PushUnique(v live.Data, hint interface{}, overwrite bool) {
 	this.mu.Lock()
 	if idx, ok := this.unique[hint]; ok {
 		if overwrite {
@@ -153,27 +153,27 @@ func (this *Acrobat) PushUnique(v live.Data, hint interface{}, overwrite bool) {
 	this.mu.Unlock()
 }
 
-func (this *Acrobat) QueueLen() int {
+func (this *Tide) QueueLen() int {
 	this.mu.Lock()
 	n := this.dq.Len()
 	this.mu.Unlock()
 	return n
 }
 
-func (this *Acrobat) NumProcessed() int64 {
+func (this *Tide) NumProcessed() int64 {
 	return atomic.LoadInt64(&this.numProcessed)
 }
 
-type Option func(acrobat *Acrobat)
+type Option func(tide *Tide)
 
 func WithLogger(log slog.Logger) Option {
-	return func(acrobat *Acrobat) {
-		acrobat.Logger = log
+	return func(tide *Tide) {
+		tide.Logger = log
 	}
 }
 
 func WithBeatInterval(interval time.Duration) Option {
-	return func(acrobat *Acrobat) {
-		acrobat.beatInterval = interval
+	return func(tide *Tide) {
+		tide.beatInterval = interval
 	}
 }

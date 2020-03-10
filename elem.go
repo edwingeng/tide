@@ -1,4 +1,4 @@
-package acrobat
+package tide
 
 import (
 	_ "github.com/edwingeng/deque"

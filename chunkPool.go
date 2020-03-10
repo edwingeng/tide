@@ -1,4 +1,4 @@
-package acrobat
+package tide
 
 import (
 	"sync"
