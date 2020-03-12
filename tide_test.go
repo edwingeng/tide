@@ -2,9 +2,10 @@ package tide
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math/rand"
 	"os"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,22 +15,62 @@ import (
 	"github.com/edwingeng/slog"
 )
 
-type counter struct {
+type clock struct {
+	sync.Mutex
+	time.Time
+}
+
+func newClock() clock {
+	return clock{Time: time.Now()}
+}
+
+func (this *clock) Add(d time.Duration) {
+	this.Lock()
+	this.Time = this.Time.Add(d)
+	this.Unlock()
+}
+
+func (this *clock) Now() time.Time {
+	this.Lock()
+	now := this.Time
+	this.Unlock()
+	return now
+}
+
+func stepDown(tide *Tide, n int) error {
+	t := time.After(time.Second)
+	for {
+		select {
+		case v := <-tide.chStep:
+			n -= v
+			if n < 0 {
+				return fmt.Errorf("n < 0. n: %d, v: %d", n, v)
+			} else if n == 0 {
+				return nil
+			}
+		case <-t:
+			return errors.New("timeout")
+		}
+	}
+}
+
+type handler struct {
 	n int64
 }
 
-func (this *counter) count(arr []live.Data) {
+func (this *handler) F(arr []live.Data) {
 	atomic.AddInt64(&this.n, int64(len(arr)))
 }
 
-func (this *counter) N() int64 {
+func (this *handler) N() int64 {
 	return atomic.LoadInt64(&this.n)
 }
 
 func TestTide_BigDelay(t *testing.T) {
 	var log slog.DumbLogger
-	var c counter
-	tide := NewTide("test", 10, time.Second*10, c.count, WithLogger(&log), WithBeatInterval(time.Millisecond))
+	var h handler
+	c := newClock()
+	tide := NewTide("test", 10, time.Second*10, h.F, WithLogger(&log), WithManualDrive(c.Now), withStepByStep())
 	liveHelper := live.NewHelper(nil, nil)
 	tide.Push(liveHelper.WrapInt(100))
 	tide.Push(live.Nil)
@@ -37,12 +78,11 @@ func TestTide_BigDelay(t *testing.T) {
 		t.Fatalf("the length of tide.cmdQueue should be 2. len: %d", tide.QueueLen())
 	}
 
-	tide.Launch()
-	defer func() {
-		tide.ticker.Stop()
-	}()
-
-	time.Sleep(time.Millisecond * 20)
+	c.Add(time.Millisecond * 20)
+	go tide.Beat()
+	if err := stepDown(tide, 0); err != nil {
+		t.Fatal(err)
+	}
 	if tide.QueueLen() != 2 {
 		t.Fatalf("the length of tide.cmdQueue should not change. len: %d", tide.QueueLen())
 	}
@@ -53,12 +93,16 @@ func TestTide_BigDelay(t *testing.T) {
 	}
 	tide.mu.Unlock()
 
-	time.Sleep(time.Millisecond * 20)
+	c.Add(time.Millisecond * 20)
+	go tide.Beat()
+	if err := stepDown(tide, 12); err != nil {
+		t.Fatal(err)
+	}
 	if tide.QueueLen() != 0 {
 		t.Fatalf("the length of tide.cmdQueue should be 0. len: %d", tide.QueueLen())
 	}
-	if v := c.N(); v != 12 {
-		t.Fatalf("c.n should be 12. c.n: %d", v)
+	if v := h.N(); v != 12 {
+		t.Fatalf("h.n should be 12. h.n: %d", v)
 	}
 
 	tide.mu.Lock()
@@ -79,12 +123,9 @@ func TestTide_BigDelay(t *testing.T) {
 
 func TestTide_BigCapacity(t *testing.T) {
 	var log slog.DumbLogger
-	var c counter
-	tide := NewTide("test", 1000, time.Millisecond*50, c.count, WithLogger(&log), WithBeatInterval(time.Millisecond))
-	tide.Launch()
-	defer func() {
-		tide.ticker.Stop()
-	}()
+	var h handler
+	c := newClock()
+	tide := NewTide("test", 1000, time.Millisecond*50, h.F, WithLogger(&log), WithManualDrive(c.Now), withStepByStep())
 
 	liveHelper := live.NewHelper(nil, nil)
 	for i := 0; i < 12; i++ {
@@ -94,25 +135,22 @@ func TestTide_BigCapacity(t *testing.T) {
 		t.Fatalf("the length of tide.cmdQueue should be 12. len: %d", tide.QueueLen())
 	}
 
-	done := make(chan struct{})
-	go func() {
-		for range time.Tick(time.Millisecond * 5) {
-			if c.N() > 0 {
-				close(done)
-				return
-			}
+	for i := 0; i < 10; i++ {
+		var wanted int
+		if i == 9 {
+			wanted = 12
 		}
-	}()
-
-	select {
-	case <-time.After(time.Millisecond * 80):
-	case <-done:
+		c.Add(time.Millisecond * 5)
+		go tide.Beat()
+		if err := stepDown(tide, wanted); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if tide.QueueLen() != 0 {
 		t.Fatalf("the length of tide.cmdQueue should be 0. len: %d", tide.QueueLen())
 	}
-	if v := c.N(); v != 12 {
-		t.Fatalf("c.n should be 12. c.n: %d", v)
+	if v := h.N(); v != 12 {
+		t.Fatalf("h.n should be 12. h.n: %d", v)
 	}
 }
 
@@ -126,16 +164,13 @@ func TestTide_NilFn(t *testing.T) {
 
 func TestTide_Stress(t *testing.T) {
 	var scav slog.Scavenger
-	var c counter
-	tide := NewTide("test", 10, time.Second*10, c.count, WithLogger(&scav), WithBeatInterval(time.Millisecond))
-	tide.Launch()
-	defer func() {
-		tide.ticker.Stop()
-	}()
+	var h handler
+	c := newClock()
+	tide := NewTide("test", 10, time.Second*10, h.F, WithLogger(&scav), WithManualDrive(c.Now), withStepByStep())
 
 	liveHelper := live.NewHelper(nil, nil)
 	const numGoroutines = 2000
-	const maxNumJobs = 10000
+	const maxNumJobs = 1000
 	var total int64
 	var wg sync.WaitGroup
 	for i := 0; i < numGoroutines; i++ {
@@ -152,22 +187,27 @@ func TestTide_Stress(t *testing.T) {
 	}
 
 	wg.Wait()
-	time.Sleep(time.Millisecond * 20)
-	if c.N() != atomic.LoadInt64(&total) {
-		t.Fatal("c.N() != atomic.LoadInt64(&total)")
+	c.Add(time.Millisecond * 20)
+	go tide.Beat()
+	if err := stepDown(tide, int(atomic.LoadInt64(&total))); err != nil {
+		t.Fatal(err)
 	}
-	if c.N() != tide.NumProcessed() {
-		t.Fatal("c.N() != tide.NumProcessed()")
+	if h.N() != atomic.LoadInt64(&total) {
+		t.Fatal("h.N() != atomic.LoadInt64(&total)")
 	}
-	if scav.Len() != 1 {
-		t.Fatal("scav.Len() != 1")
+	if h.N() != tide.NumProcessed() {
+		t.Fatal("h.N() != tide.NumProcessed()")
+	}
+	if scav.Len() != 0 {
+		t.Fatal("scav.Len() != 0")
 	}
 }
 
 func TestTide_PushUnique(t *testing.T) {
 	var scav slog.Scavenger
-	var c counter
-	tide := NewTide("test", 10, time.Millisecond, c.count, WithLogger(&scav), WithBeatInterval(time.Millisecond))
+	var h handler
+	c := newClock()
+	tide := NewTide("test", 10, time.Millisecond, h.F, WithLogger(&scav), WithManualDrive(c.Now), withStepByStep())
 
 	liveHelper := live.NewHelper(nil, nil)
 	tide.PushUnique(liveHelper.WrapInt(1), 100, false)
@@ -203,14 +243,12 @@ func TestTide_PushUnique(t *testing.T) {
 		t.Fatal("tide.QueueLen() != 4")
 	}
 
-	tide.Launch()
-	defer func() {
-		tide.ticker.Stop()
-	}()
-
-	for c.N() == 0 {
-		runtime.Gosched()
+	c.Add(time.Millisecond)
+	go tide.Beat()
+	if err := stepDown(tide, 4); err != nil {
+		t.Fatal(err)
 	}
+
 	tide.mu.Lock()
 	leN := len(tide.unique)
 	tide.mu.Unlock()
@@ -221,8 +259,8 @@ func TestTide_PushUnique(t *testing.T) {
 
 func TestTide_Shutdown1(t *testing.T) {
 	var log slog.DumbLogger
-	var c counter
-	tide := NewTide("test", 10, time.Second*10, c.count, WithLogger(&log), WithBeatInterval(time.Millisecond))
+	var h handler
+	tide := NewTide("test", 10, time.Second*10, h.F, WithLogger(&log), WithBeatInterval(time.Millisecond))
 	liveHelper := live.NewHelper(nil, nil)
 	tide.Push(liveHelper.WrapInt(100))
 	tide.Push(liveHelper.WrapInt(200))
@@ -234,8 +272,8 @@ func TestTide_Shutdown1(t *testing.T) {
 	if err := tide.Shutdown(ctx1); err != nil {
 		t.Fatal(err)
 	}
-	if c.N() != 3 {
-		t.Fatal("c.N() != 3")
+	if h.N() != 3 {
+		t.Fatal("h.N() != 3")
 	}
 }
 

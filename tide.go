@@ -17,22 +17,27 @@ type Func func(arr []live.Data)
 type Tide struct {
 	slog.Logger
 	name         string
+	bManualDrive bool
+	fNow         func() time.Time
 	beatInterval time.Duration
 	maxLen       int
 	maxDelay     time.Duration
 	fn           Func
 
+	stepByStep bool
+	chStep     chan int
+
 	ticker *time.Ticker
-	unique map[interface{}]int
+	stop   chan chan struct{}
 
 	once         sync.Once
 	numProcessed int64
 
-	mu sync.Mutex
-	dq *Deque
+	mu     sync.Mutex
+	unique map[interface{}]int
+	dq     *Deque
 
 	startTime time.Time
-	stop      chan chan struct{}
 }
 
 func NewTide(name string, maxLen int, maxDelay time.Duration, fn Func, opts ...Option) (tide *Tide) {
@@ -41,6 +46,7 @@ func NewTide(name string, maxLen int, maxDelay time.Duration, fn Func, opts ...O
 	}
 	tide = &Tide{
 		name:         name,
+		fNow:         time.Now,
 		Logger:       slog.ConsoleLogger{},
 		beatInterval: time.Millisecond * 100,
 		maxLen:       maxLen,
@@ -48,7 +54,6 @@ func NewTide(name string, maxLen int, maxDelay time.Duration, fn Func, opts ...O
 		fn:           fn,
 		dq:           NewDeque(),
 		unique:       make(map[interface{}]int),
-		stop:         make(chan chan struct{}, 1),
 	}
 	for _, opt := range opts {
 		opt(tide)
@@ -57,8 +62,12 @@ func NewTide(name string, maxLen int, maxDelay time.Duration, fn Func, opts ...O
 }
 
 func (this *Tide) Launch() {
+	if this.bManualDrive {
+		panic(fmt.Errorf("<tide.%s> WithManualDrive'd Tide cannot be launched", this.name))
+	}
 	this.once.Do(func() {
 		this.ticker = time.NewTicker(this.beatInterval)
+		this.stop = make(chan chan struct{}, 1)
 		go this.engine()
 	})
 }
@@ -83,10 +92,10 @@ func (this *Tide) engineImpl(force bool) {
 	t := this.startTime
 	this.mu.Unlock()
 	if n == 0 {
-		return
+		goto exit
 	}
 
-	if n >= this.maxLen || !t.IsZero() && time.Now().Sub(t) >= this.maxDelay || force {
+	if n >= this.maxLen || !t.IsZero() && this.fNow().Sub(t) >= this.maxDelay || force {
 		this.mu.Lock()
 		a := this.dq.DequeueMany(0)
 		this.startTime = time.Time{}
@@ -98,6 +107,18 @@ func (this *Tide) engineImpl(force bool) {
 		this.mu.Unlock()
 		if len(a) > 0 {
 			this.process(a)
+			n = len(a)
+		}
+	} else {
+		n = 0
+	}
+
+exit:
+	if this.stepByStep {
+		select {
+		case this.chStep <- n:
+		case <-time.After(time.Second):
+			this.Errorf("<tide.%s> no one is listening to the step-by-step channel", this.name)
 		}
 	}
 }
@@ -113,6 +134,11 @@ func (this *Tide) process(a []live.Data) {
 }
 
 func (this *Tide) Shutdown(ctx context.Context) error {
+	if this.bManualDrive {
+		this.engineImpl(true)
+		return nil
+	}
+
 	this.ticker.Stop()
 	ch := make(chan struct{})
 	this.stop <- ch
@@ -128,7 +154,7 @@ func (this *Tide) Push(v live.Data) {
 	this.mu.Lock()
 	switch this.dq.Empty() {
 	case true:
-		this.startTime = time.Now()
+		this.startTime = this.fNow()
 	}
 	this.dq.Enqueue(v)
 	this.mu.Unlock()
@@ -145,7 +171,7 @@ func (this *Tide) PushUnique(v live.Data, hint interface{}, overwrite bool) {
 	}
 	switch this.dq.Empty() {
 	case true:
-		this.startTime = time.Now()
+		this.startTime = this.fNow()
 	}
 	this.dq.Enqueue(v)
 	n := this.dq.Len()
@@ -164,6 +190,14 @@ func (this *Tide) NumProcessed() int64 {
 	return atomic.LoadInt64(&this.numProcessed)
 }
 
+func (this *Tide) Beat() {
+	if this.bManualDrive {
+		this.engineImpl(false)
+	} else {
+		panic(fmt.Errorf("<tide.%s> WithManualDrive is missing", this.name))
+	}
+}
+
 type Option func(tide *Tide)
 
 func WithLogger(log slog.Logger) Option {
@@ -175,5 +209,19 @@ func WithLogger(log slog.Logger) Option {
 func WithBeatInterval(interval time.Duration) Option {
 	return func(tide *Tide) {
 		tide.beatInterval = interval
+	}
+}
+
+func WithManualDrive(fNow func() time.Time) Option {
+	return func(tide *Tide) {
+		tide.bManualDrive = true
+		tide.fNow = fNow
+	}
+}
+
+func withStepByStep() Option {
+	return func(tide *Tide) {
+		tide.stepByStep = true
+		tide.chStep = make(chan int)
 	}
 }
