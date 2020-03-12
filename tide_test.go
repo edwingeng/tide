@@ -71,6 +71,11 @@ func TestTide_BigDelay(t *testing.T) {
 	var h handler
 	c := newClock()
 	tide := NewTide("test", 10, time.Second*10, h.F, WithLogger(&log), WithManualDrive(c.Now), withStepByStep())
+	go tide.Beat()
+	if err := stepDown(tide, 0); err != nil {
+		t.Fatal(err)
+	}
+
 	liveHelper := live.NewHelper(nil, nil)
 	tide.Push(liveHelper.WrapInt(100))
 	tide.Push(live.Nil)
@@ -267,6 +272,7 @@ func TestTide_Shutdown1(t *testing.T) {
 	tide.Push(liveHelper.WrapInt(300))
 
 	tide.Launch()
+	time.Sleep(time.Millisecond * 20)
 	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Millisecond*100)
 	defer cancel1()
 	if err := tide.Shutdown(ctx1); err != nil {
@@ -282,13 +288,13 @@ func TestTide_Shutdown2(t *testing.T) {
 	sleep := func(arr []live.Data) {
 		time.Sleep(time.Millisecond * 100)
 	}
-	tide := NewTide("test", 10, time.Second*10, sleep, WithLogger(&log), WithBeatInterval(time.Millisecond))
+	c := newClock()
+	tide := NewTide("test", 10, time.Second*10, sleep, WithLogger(&log), WithManualDrive(c.Now), withStepByStep())
 	liveHelper := live.NewHelper(nil, nil)
 	tide.Push(liveHelper.WrapInt(100))
 	tide.Push(liveHelper.WrapInt(200))
 	tide.Push(liveHelper.WrapInt(300))
 
-	tide.Launch()
 	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Millisecond)
 	defer cancel1()
 	if err := tide.Shutdown(ctx1); err == nil || !os.IsTimeout(err) {

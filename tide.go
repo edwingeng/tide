@@ -135,8 +135,17 @@ func (this *Tide) process(a []live.Data) {
 
 func (this *Tide) Shutdown(ctx context.Context) error {
 	if this.bManualDrive {
-		this.engineImpl(true)
-		return nil
+		ch := make(chan struct{})
+		go func() {
+			this.engineImpl(true)
+			ch <- struct{}{}
+		}()
+		select {
+		case <-ch:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 
 	this.ticker.Stop()
