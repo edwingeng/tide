@@ -1,2 +1,3 @@
-# tide
-Tide processes data in a lazy manner
+<p align="center">
+	<img src="./tide.jpg">
+</p>
