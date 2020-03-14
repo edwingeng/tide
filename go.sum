@@ -1,5 +1,7 @@
 github.com/edwingeng/deque v0.0.0-20191220032131-8596380dee17 h1:8i9x3Q4hW1kLE4ScsOtUlwVHT76LKhkmOw9zbDxnyUc=
 github.com/edwingeng/deque v0.0.0-20191220032131-8596380dee17/go.mod h1:3Ys1pJhyVaB6iWigv4o2r6Ug1GZmfDWqvqmO6bjojg0=
+github.com/edwingeng/deque v0.0.0-20200314053023-4b14504bda4b h1:RQv5xHUzdZw0+u4v9/GmY0u01qfsj06ZXEOht07QCvo=
+github.com/edwingeng/deque v0.0.0-20200314053023-4b14504bda4b/go.mod h1:3Ys1pJhyVaB6iWigv4o2r6Ug1GZmfDWqvqmO6bjojg0=
 github.com/edwingeng/live v0.0.0-20200310164802-fae0489d41c2 h1:GQkCuBAVSJ4IOXh4IGwrhADGN/FbHiR/pn9GikzoZ+U=
 github.com/edwingeng/live v0.0.0-20200310164802-fae0489d41c2/go.mod h1:fl1KJzVIksXbwIYMpXKZOY8iezxhtzpQwgb9rM/X/Rs=
 github.com/edwingeng/slog v0.0.0-20191011125256-3ac46ac3623d h1:/1paWA9ZxTiyOM10Em751o0wzv0I8Ikey8lRW5ijYIg=
