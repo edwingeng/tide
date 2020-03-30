@@ -16,13 +16,13 @@ type Func func(arr []live.Data)
 
 type Tide struct {
 	slog.Logger
-	name         string
-	bManualDrive bool
-	fNow         func() time.Time
-	beatInterval time.Duration
-	maxLen       int
-	maxDelay     time.Duration
-	fn           Func
+	name           string
+	bManualDriving bool
+	fNow           func() time.Time
+	beatInterval   time.Duration
+	maxLen         int
+	maxDelay       time.Duration
+	fn             Func
 
 	stepByStep bool
 	chStep     chan int
@@ -62,8 +62,8 @@ func NewTide(name string, maxLen int, maxDelay time.Duration, fn Func, opts ...O
 }
 
 func (this *Tide) Launch() {
-	if this.bManualDrive {
-		panic(fmt.Errorf("<tide.%s> WithManualDrive'd Tide cannot be launched", this.name))
+	if this.bManualDriving {
+		panic(fmt.Errorf("<tide.%s> WithManualDriving'd Tide cannot be launched", this.name))
 	}
 	this.once.Do(func() {
 		this.ticker = time.NewTicker(this.beatInterval)
@@ -134,7 +134,7 @@ func (this *Tide) process(a []live.Data) {
 }
 
 func (this *Tide) Shutdown(ctx context.Context) error {
-	if this.bManualDrive {
+	if this.bManualDriving {
 		ch := make(chan struct{})
 		go func() {
 			this.engineImpl(true)
@@ -200,10 +200,10 @@ func (this *Tide) NumProcessed() int64 {
 }
 
 func (this *Tide) Beat() {
-	if this.bManualDrive {
+	if this.bManualDriving {
 		this.engineImpl(false)
 	} else {
-		panic(fmt.Errorf("<tide.%s> WithManualDrive is missing", this.name))
+		panic(fmt.Errorf("<tide.%s> WithManualDriving is missing", this.name))
 	}
 }
 
@@ -221,9 +221,9 @@ func WithBeatInterval(interval time.Duration) Option {
 	}
 }
 
-func WithManualDrive(fNow func() time.Time) Option {
+func WithManualDriving(fNow func() time.Time) Option {
 	return func(tide *Tide) {
-		tide.bManualDrive = true
+		tide.bManualDriving = true
 		tide.fNow = fNow
 	}
 }

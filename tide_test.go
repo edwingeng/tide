@@ -70,7 +70,7 @@ func TestTide_BigDelay(t *testing.T) {
 	var log slog.DumbLogger
 	var h handler
 	c := newClock()
-	tide := NewTide("test", 10, time.Second*10, h.F, WithLogger(&log), WithManualDrive(c.Now), withStepByStep())
+	tide := NewTide("test", 10, time.Second*10, h.F, WithLogger(&log), WithManualDriving(c.Now), withStepByStep())
 	go tide.Beat()
 	if err := stepDown(tide, 0); err != nil {
 		t.Fatal(err)
@@ -130,7 +130,7 @@ func TestTide_BigCapacity(t *testing.T) {
 	var log slog.DumbLogger
 	var h handler
 	c := newClock()
-	tide := NewTide("test", 1000, time.Millisecond*50, h.F, WithLogger(&log), WithManualDrive(c.Now), withStepByStep())
+	tide := NewTide("test", 1000, time.Millisecond*50, h.F, WithLogger(&log), WithManualDriving(c.Now), withStepByStep())
 
 	liveHelper := live.NewHelper(nil, nil)
 	for i := 0; i < 12; i++ {
@@ -171,7 +171,7 @@ func TestTide_Stress(t *testing.T) {
 	var scav slog.Scavenger
 	var h handler
 	c := newClock()
-	tide := NewTide("test", 10, time.Second*10, h.F, WithLogger(&scav), WithManualDrive(c.Now), withStepByStep())
+	tide := NewTide("test", 10, time.Second*10, h.F, WithLogger(&scav), WithManualDriving(c.Now), withStepByStep())
 
 	liveHelper := live.NewHelper(nil, nil)
 	const numGoroutines = 2000
@@ -212,7 +212,7 @@ func TestTide_PushUnique(t *testing.T) {
 	var scav slog.Scavenger
 	var h handler
 	c := newClock()
-	tide := NewTide("test", 10, time.Millisecond, h.F, WithLogger(&scav), WithManualDrive(c.Now), withStepByStep())
+	tide := NewTide("test", 10, time.Millisecond, h.F, WithLogger(&scav), WithManualDriving(c.Now), withStepByStep())
 
 	liveHelper := live.NewHelper(nil, nil)
 	tide.PushUnique(liveHelper.WrapInt(1), 100, false)
@@ -289,7 +289,7 @@ func TestTide_Shutdown2(t *testing.T) {
 		time.Sleep(time.Millisecond * 100)
 	}
 	c := newClock()
-	tide := NewTide("test", 10, time.Second*10, sleep, WithLogger(&log), WithManualDrive(c.Now), withStepByStep())
+	tide := NewTide("test", 10, time.Second*10, sleep, WithLogger(&log), WithManualDriving(c.Now), withStepByStep())
 	liveHelper := live.NewHelper(nil, nil)
 	tide.Push(liveHelper.WrapInt(100))
 	tide.Push(liveHelper.WrapInt(200))
