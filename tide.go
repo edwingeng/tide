@@ -14,6 +14,11 @@ import (
 
 type Func func(arr []live.Data)
 
+type flushSignal struct {
+	done chan struct{}
+	quit bool
+}
+
 type Tide struct {
 	slog.Logger
 	name           string
@@ -27,8 +32,8 @@ type Tide struct {
 	stepByStep bool
 	chStep     chan int
 
-	ticker *time.Ticker
-	stop   chan chan struct{}
+	tick    *time.Ticker
+	chFlush chan flushSignal
 
 	once         sync.Once
 	numProcessed int64
@@ -66,8 +71,8 @@ func (this *Tide) Launch() {
 		panic(fmt.Errorf("<tide.%s> WithManualDriving'd Tide cannot be launched", this.name))
 	}
 	this.once.Do(func() {
-		this.ticker = time.NewTicker(this.beatInterval)
-		this.stop = make(chan chan struct{}, 1)
+		this.tick = time.NewTicker(this.beatInterval)
+		this.chFlush = make(chan flushSignal)
 		go this.engine()
 	})
 }
@@ -76,12 +81,14 @@ func (this *Tide) engine() {
 	this.Infof("<tide.%s> started", this.name)
 	for {
 		select {
-		case <-this.ticker.C:
+		case <-this.tick.C:
 			this.engineImpl(false)
-		case ch := <-this.stop:
+		case signal := <-this.chFlush:
 			this.engineImpl(true)
-			close(ch)
-			return
+			close(signal.done)
+			if signal.quit {
+				return
+			}
 		}
 	}
 }
@@ -134,6 +141,14 @@ func (this *Tide) process(a []live.Data) {
 }
 
 func (this *Tide) Shutdown(ctx context.Context) error {
+	return this.flushImpl(ctx, true)
+}
+
+func (this *Tide) Flush(ctx context.Context) error {
+	return this.flushImpl(ctx, false)
+}
+
+func (this *Tide) flushImpl(ctx context.Context, quit bool) error {
 	if this.bManualDriving {
 		ch := make(chan struct{})
 		go func() {
@@ -148,11 +163,11 @@ func (this *Tide) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	this.ticker.Stop()
-	ch := make(chan struct{})
-	this.stop <- ch
+	this.tick.Stop()
+	signal := flushSignal{done: make(chan struct{}), quit: quit}
+	this.chFlush <- signal
 	select {
-	case <-ch:
+	case <-signal.done:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
