@@ -72,7 +72,7 @@ func (this *Tide) Launch() {
 	}
 	this.once.Do(func() {
 		this.tick = time.NewTicker(this.beatInterval)
-		this.chFlush = make(chan flushSignal)
+		this.chFlush = make(chan flushSignal, 16)
 		go this.engine()
 	})
 }
