@@ -163,7 +163,9 @@ func (this *Tide) flushImpl(ctx context.Context, quit bool) error {
 		}
 	}
 
-	this.tick.Stop()
+	if quit {
+		this.tick.Stop()
+	}
 	signal := flushSignal{done: make(chan struct{}), quit: quit}
 	this.chFlush <- signal
 	select {
