@@ -168,10 +168,10 @@ func TestTide_NilFn(t *testing.T) {
 }
 
 func TestTide_Stress(t *testing.T) {
-	var scav slog.Scavenger
+	scav := slog.NewScavenger()
 	var h handler
 	c := newClock()
-	tide := NewTide("test", 10, time.Second*10, h.F, WithLogger(&scav), WithManualDriving(c.Now), withStepByStep())
+	tide := NewTide("test", 10, time.Second*10, h.F, WithLogger(scav), WithManualDriving(c.Now), withStepByStep())
 
 	liveHelper := live.NewHelper(nil)
 	const numGoroutines = 2000
@@ -209,10 +209,10 @@ func TestTide_Stress(t *testing.T) {
 }
 
 func TestTide_PushUnique(t *testing.T) {
-	var scav slog.Scavenger
+	scav := slog.NewScavenger()
 	var h handler
 	c := newClock()
-	tide := NewTide("test", 10, time.Millisecond, h.F, WithLogger(&scav), WithManualDriving(c.Now), withStepByStep())
+	tide := NewTide("test", 10, time.Millisecond, h.F, WithLogger(scav), WithManualDriving(c.Now), withStepByStep())
 
 	liveHelper := live.NewHelper(nil)
 	tide.PushUnique(liveHelper.WrapInt(1), 100, false)
