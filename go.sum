@@ -2,8 +2,8 @@ github.com/edwingeng/deque v0.0.0-20200314053023-4b14504bda4b h1:RQv5xHUzdZw0+u4
 github.com/edwingeng/deque v0.0.0-20200314053023-4b14504bda4b/go.mod h1:3Ys1pJhyVaB6iWigv4o2r6Ug1GZmfDWqvqmO6bjojg0=
 github.com/edwingeng/live v0.0.0-20201023071152-1dd57dbf2ba8 h1:GAbpFVktzGx+PNYsBc4W74NvXF2JbU+oCBQ654+gz6E=
 github.com/edwingeng/live v0.0.0-20201023071152-1dd57dbf2ba8/go.mod h1:0Dhx+FYT0yDsjRGv/zDR0fmvLe2Czu2T3PicPCIAka4=
-github.com/edwingeng/slog v0.0.0-20201022130951-3acf7ffd5ae9 h1:sudimiur/x85IQnXxRauTGczBlZxGyQHcIS/kpVsTNY=
-github.com/edwingeng/slog v0.0.0-20201022130951-3acf7ffd5ae9/go.mod h1:g3bFHx27qq2CKFvaeya0LS+cKa3dOiYrSdqHeAxWYT0=
+github.com/edwingeng/slog v0.0.0-20201024032334-a3591dd2a5f1 h1:gq+I7VDmxzvJ8/lWKFCw8H5Y7af6Y5cC8/vdwI/hzs0=
+github.com/edwingeng/slog v0.0.0-20201024032334-a3591dd2a5f1/go.mod h1:g3bFHx27qq2CKFvaeya0LS+cKa3dOiYrSdqHeAxWYT0=
 github.com/gogo/protobuf v1.3.1 h1:DqDEcV5aeaTmdFBePNpYsp3FlcVH/2ISVVM9Qf8PSls=
 github.com/gogo/protobuf v1.3.1/go.mod h1:SlYgWuQ5SjCEi6WLHjHCa1yvBfUnHcTbrrZtXPKa29o=
 github.com/josharian/intern v1.0.0 h1:vlS4z54oSdjm0bgjRigI+G1HpF+tI+9rE5LLzOg8HmY=
