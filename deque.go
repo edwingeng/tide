@@ -205,29 +205,6 @@ func (dq *Deque) PopBack() Elem {
 	return r
 }
 
-func (dq *Deque) PopManyBack(max int) []Elem {
-	n := dq.Len()
-	if n == 0 {
-		return nil
-	}
-	if max > 0 && n > max {
-		n = max
-	}
-	vals := make([]Elem, n)
-	x := len(dq.chunks) - 1
-	for i := 0; i < n; i++ {
-		c := dq.chunks[x]
-		c.e--
-		vals[i] = c.data[c.e]
-		c.data[c.e] = elemDefValue
-		if c.e == 0 {
-			dq.shrinkEnd()
-			x--
-		}
-	}
-	return vals
-}
-
 func (dq *Deque) PopFront() Elem {
 	n := len(dq.chunks)
 	if n == 0 {
@@ -246,7 +223,11 @@ func (dq *Deque) PopFront() Elem {
 	return r
 }
 
-func (dq *Deque) PopManyFront(max int) []Elem {
+func (dq *Deque) DequeueMany(max int) []Elem {
+	return dq.dequeueManyImpl(max, nil)
+}
+
+func (dq *Deque) dequeueManyImpl(max int, buf []Elem) []Elem {
 	n := dq.Len()
 	if n == 0 {
 		return nil
@@ -254,17 +235,25 @@ func (dq *Deque) PopManyFront(max int) []Elem {
 	if max > 0 && n > max {
 		n = max
 	}
-	vals := make([]Elem, n)
+	if n <= cap(buf) {
+		buf = buf[:n]
+	} else {
+		buf = make([]Elem, n)
+	}
 	for i := 0; i < n; i++ {
 		c := dq.chunks[0]
-		vals[i] = c.data[c.s]
+		buf[i] = c.data[c.s]
 		c.data[c.s] = elemDefValue
 		c.s++
 		if c.s == chunkSize {
 			dq.shrinkStart()
 		}
 	}
-	return vals
+	return buf
+}
+
+func (dq *Deque) DequeueManyWithBuffer(max int, buf []Elem) []Elem {
+	return dq.dequeueManyImpl(max, buf)
 }
 
 func (dq *Deque) Back() Elem {
@@ -306,10 +295,6 @@ func (dq *Deque) Enqueue(v Elem) {
 
 func (dq *Deque) Dequeue() Elem {
 	return dq.PopFront()
-}
-
-func (dq *Deque) DequeueMany(max int) []Elem {
-	return dq.PopManyFront(max)
 }
 
 func (dq *Deque) Dump() []Elem {
