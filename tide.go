@@ -66,25 +66,25 @@ func NewTide(name string, maxLen int, maxDelay time.Duration, fn Func, opts ...O
 	return
 }
 
-func (this *Tide) Launch() {
-	if this.bManualDriving {
-		panic(fmt.Errorf("<tide.%s> WithManualDriving'd Tide cannot be launched", this.name))
+func (x *Tide) Launch() {
+	if x.bManualDriving {
+		panic(fmt.Errorf("<tide.%s> WithManualDriving'd Tide cannot be launched", x.name))
 	}
-	this.once.Do(func() {
-		this.tick = time.NewTicker(this.beatInterval)
-		this.chFlush = make(chan flushSignal, 16)
-		go this.engine()
+	x.once.Do(func() {
+		x.tick = time.NewTicker(x.beatInterval)
+		x.chFlush = make(chan flushSignal, 16)
+		go x.engine()
 	})
 }
 
-func (this *Tide) engine() {
-	this.Infof("<tide.%s> started", this.name)
+func (x *Tide) engine() {
+	x.Infof("<tide.%s> started", x.name)
 	for {
 		select {
-		case <-this.tick.C:
-			this.engineImpl(false)
-		case signal := <-this.chFlush:
-			this.engineImpl(true)
+		case <-x.tick.C:
+			x.engineImpl(false)
+		case signal := <-x.chFlush:
+			x.engineImpl(true)
 			close(signal.done)
 			if signal.quit {
 				return
@@ -93,27 +93,27 @@ func (this *Tide) engine() {
 	}
 }
 
-func (this *Tide) engineImpl(force bool) {
-	this.mu.Lock()
-	n := this.dq.Len()
-	t := this.startTime
-	this.mu.Unlock()
+func (x *Tide) engineImpl(force bool) {
+	x.mu.Lock()
+	n := x.dq.Len()
+	t := x.startTime
+	x.mu.Unlock()
 	if n == 0 {
 		goto exit
 	}
 
-	if n >= this.maxLen || !t.IsZero() && this.fNow().Sub(t) >= this.maxDelay || force {
-		this.mu.Lock()
-		a := this.dq.DequeueMany(0)
-		this.startTime = time.Time{}
-		if len(this.unique) > 0 {
-			for k := range this.unique {
-				delete(this.unique, k)
+	if n >= x.maxLen || !t.IsZero() && x.fNow().Sub(t) >= x.maxDelay || force {
+		x.mu.Lock()
+		a := x.dq.DequeueMany(0)
+		x.startTime = time.Time{}
+		if len(x.unique) > 0 {
+			for k := range x.unique {
+				delete(x.unique, k)
 			}
 		}
-		this.mu.Unlock()
+		x.mu.Unlock()
 		if len(a) > 0 {
-			this.process(a)
+			x.process(a)
 			n = len(a)
 		}
 	} else {
@@ -121,38 +121,38 @@ func (this *Tide) engineImpl(force bool) {
 	}
 
 exit:
-	if this.stepByStep {
+	if x.stepByStep {
 		select {
-		case this.chStep <- n:
+		case x.chStep <- n:
 		case <-time.After(time.Second):
-			this.Errorf("<tide.%s> no one is listening to the step-by-step channel", this.name)
+			x.Errorf("<tide.%s> no one is listening to the step-by-step channel", x.name)
 		}
 	}
 }
 
-func (this *Tide) process(a []live.Data) {
+func (x *Tide) process(a []live.Data) {
 	defer func() {
 		if r := recover(); r != nil {
-			this.Error(fmt.Sprintf("<tide.%s> panic: %+v\n%s", this.name, r, debug.Stack()))
+			x.Error(fmt.Sprintf("<tide.%s> panic: %+v\n%s", x.name, r, debug.Stack()))
 		}
 	}()
-	this.fn(a)
-	atomic.AddInt64(&this.numProcessed, int64(len(a)))
+	x.fn(a)
+	atomic.AddInt64(&x.numProcessed, int64(len(a)))
 }
 
-func (this *Tide) Shutdown(ctx context.Context) error {
-	return this.flushImpl(ctx, true)
+func (x *Tide) Shutdown(ctx context.Context) error {
+	return x.flushImpl(ctx, true)
 }
 
-func (this *Tide) Flush(ctx context.Context) error {
-	return this.flushImpl(ctx, false)
+func (x *Tide) Flush(ctx context.Context) error {
+	return x.flushImpl(ctx, false)
 }
 
-func (this *Tide) flushImpl(ctx context.Context, quit bool) error {
-	if this.bManualDriving {
+func (x *Tide) flushImpl(ctx context.Context, quit bool) error {
+	if x.bManualDriving {
 		ch := make(chan struct{})
 		go func() {
-			this.engineImpl(true)
+			x.engineImpl(true)
 			ch <- struct{}{}
 		}()
 		select {
@@ -164,10 +164,10 @@ func (this *Tide) flushImpl(ctx context.Context, quit bool) error {
 	}
 
 	if quit {
-		this.tick.Stop()
+		x.tick.Stop()
 	}
 	signal := flushSignal{done: make(chan struct{}), quit: quit}
-	this.chFlush <- signal
+	x.chFlush <- signal
 	select {
 	case <-signal.done:
 		return nil
@@ -176,51 +176,51 @@ func (this *Tide) flushImpl(ctx context.Context, quit bool) error {
 	}
 }
 
-func (this *Tide) Push(v live.Data) {
-	this.mu.Lock()
-	switch this.dq.Empty() {
+func (x *Tide) Push(v live.Data) {
+	x.mu.Lock()
+	switch x.dq.Empty() {
 	case true:
-		this.startTime = this.fNow()
+		x.startTime = x.fNow()
 	}
-	this.dq.Enqueue(v)
-	this.mu.Unlock()
+	x.dq.Enqueue(v)
+	x.mu.Unlock()
 }
 
-func (this *Tide) PushUnique(v live.Data, hint interface{}, overwrite bool) {
-	this.mu.Lock()
-	if idx, ok := this.unique[hint]; ok {
+func (x *Tide) PushUnique(v live.Data, hint interface{}, overwrite bool) {
+	x.mu.Lock()
+	if idx, ok := x.unique[hint]; ok {
 		if overwrite {
-			this.dq.Replace(idx, v)
+			x.dq.Replace(idx, v)
 		}
-		this.mu.Unlock()
+		x.mu.Unlock()
 		return
 	}
-	switch this.dq.Empty() {
+	switch x.dq.Empty() {
 	case true:
-		this.startTime = this.fNow()
+		x.startTime = x.fNow()
 	}
-	this.dq.Enqueue(v)
-	n := this.dq.Len()
-	this.unique[hint] = n - 1
-	this.mu.Unlock()
+	x.dq.Enqueue(v)
+	n := x.dq.Len()
+	x.unique[hint] = n - 1
+	x.mu.Unlock()
 }
 
-func (this *Tide) QueueLen() int {
-	this.mu.Lock()
-	n := this.dq.Len()
-	this.mu.Unlock()
+func (x *Tide) QueueLen() int {
+	x.mu.Lock()
+	n := x.dq.Len()
+	x.mu.Unlock()
 	return n
 }
 
-func (this *Tide) NumProcessed() int64 {
-	return atomic.LoadInt64(&this.numProcessed)
+func (x *Tide) NumProcessed() int64 {
+	return atomic.LoadInt64(&x.numProcessed)
 }
 
-func (this *Tide) Beat() {
-	if this.bManualDriving {
-		this.engineImpl(false)
+func (x *Tide) Beat() {
+	if x.bManualDriving {
+		x.engineImpl(false)
 	} else {
-		panic(fmt.Errorf("<tide.%s> WithManualDriving is missing", this.name))
+		panic(fmt.Errorf("<tide.%s> WithManualDriving is missing", x.name))
 	}
 }
 
