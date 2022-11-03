@@ -4,15 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edwingeng/live"
+	"github.com/edwingeng/slog"
 	"math/rand"
 	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/edwingeng/live"
-	"github.com/edwingeng/slog"
 )
 
 type clock struct {
@@ -24,16 +24,16 @@ func newClock() clock {
 	return clock{Time: time.Now()}
 }
 
-func (this *clock) Add(d time.Duration) {
-	this.Lock()
-	this.Time = this.Time.Add(d)
-	this.Unlock()
+func (c *clock) Add(d time.Duration) {
+	c.Lock()
+	c.Time = c.Time.Add(d)
+	c.Unlock()
 }
 
-func (this *clock) Now() time.Time {
-	this.Lock()
-	now := this.Time
-	this.Unlock()
+func (c *clock) Now() time.Time {
+	c.Lock()
+	now := c.Time
+	c.Unlock()
 	return now
 }
 
@@ -58,53 +58,53 @@ type handler struct {
 	n int64
 }
 
-func (this *handler) F(arr []live.Data) {
-	atomic.AddInt64(&this.n, int64(len(arr)))
+func (h *handler) Func(arr []live.Data) {
+	atomic.AddInt64(&h.n, int64(len(arr)))
 }
 
-func (this *handler) N() int64 {
-	return atomic.LoadInt64(&this.n)
+func (h *handler) N() int64 {
+	return atomic.LoadInt64(&h.n)
 }
 
 func TestTide_BigDelay(t *testing.T) {
-	var log slog.DumbLogger
 	var h handler
 	c := newClock()
-	tide := NewTide("test", 10, time.Second*10, h.F, WithLogger(&log), WithManualDriving(c.Now), withStepByStep())
-	go tide.Beat()
+	logger := slog.NewDumbLogger()
+	tide := NewTide("test", 10, time.Second*10, h.Func, WithLogger(logger),
+		WithHandDriven(c.Now), withStepByStep())
+	go tide.engineImpl(false)
 	if err := stepDown(tide, 0); err != nil {
 		t.Fatal(err)
 	}
 
-	liveHelper := live.NewHelper(nil)
-	tide.Push(liveHelper.WrapInt(100))
+	tide.Push(live.WrapInt(100))
 	tide.Push(live.Nil)
-	if tide.QueueLen() != 2 {
-		t.Fatalf("the length of tide.cmdQueue should be 2. len: %d", tide.QueueLen())
+	if tide.Len() != 2 {
+		t.Fatalf("the length should be 2. len: %d", tide.Len())
 	}
 
-	c.Add(time.Millisecond * 20)
-	go tide.Beat()
+	c.Add(time.Second * 2)
+	go tide.engineImpl(false)
 	if err := stepDown(tide, 0); err != nil {
 		t.Fatal(err)
 	}
-	if tide.QueueLen() != 2 {
-		t.Fatalf("the length of tide.cmdQueue should not change. len: %d", tide.QueueLen())
+	if tide.Len() != 2 {
+		t.Fatalf("the length should not change. len: %d", tide.Len())
 	}
 
 	tide.mu.Lock()
 	for i := 0; i < 10; i++ {
-		tide.dq.Enqueue(liveHelper.WrapInt(200))
+		tide.dq.Enqueue(live.WrapInt(200))
 	}
 	tide.mu.Unlock()
 
-	c.Add(time.Millisecond * 20)
-	go tide.Beat()
+	c.Add(time.Second * 2)
+	go tide.engineImpl(false)
 	if err := stepDown(tide, 12); err != nil {
 		t.Fatal(err)
 	}
-	if tide.QueueLen() != 0 {
-		t.Fatalf("the length of tide.cmdQueue should be 0. len: %d", tide.QueueLen())
+	if tide.Len() != 0 {
+		t.Fatalf("the length should be 0. len: %d", tide.Len())
 	}
 	if v := h.N(); v != 12 {
 		t.Fatalf("h.n should be 12. h.n: %d", v)
@@ -117,7 +117,7 @@ func TestTide_BigDelay(t *testing.T) {
 		t.Fatal("startTime should be zero now")
 	}
 
-	tide.Push(liveHelper.WrapInt(300))
+	tide.Push(live.WrapInt(300))
 	tide.mu.Lock()
 	startTime2 := tide.startTime
 	tide.mu.Unlock()
@@ -127,17 +127,17 @@ func TestTide_BigDelay(t *testing.T) {
 }
 
 func TestTide_BigCapacity(t *testing.T) {
-	var log slog.DumbLogger
 	var h handler
 	c := newClock()
-	tide := NewTide("test", 1000, time.Millisecond*50, h.F, WithLogger(&log), WithManualDriving(c.Now), withStepByStep())
+	logger := slog.NewDumbLogger()
+	tide := NewTide("test", 1000, time.Millisecond*50, h.Func, WithLogger(logger),
+		WithHandDriven(c.Now), withStepByStep())
 
-	liveHelper := live.NewHelper(nil)
 	for i := 0; i < 12; i++ {
-		tide.Push(liveHelper.WrapInt(200))
+		tide.Push(live.WrapInt(200))
 	}
-	if tide.QueueLen() != 12 {
-		t.Fatalf("the length of tide.cmdQueue should be 12. len: %d", tide.QueueLen())
+	if tide.Len() != 12 {
+		t.Fatalf("the length should be 12. len: %d", tide.Len())
 	}
 
 	for i := 0; i < 10; i++ {
@@ -146,35 +146,63 @@ func TestTide_BigCapacity(t *testing.T) {
 			wanted = 12
 		}
 		c.Add(time.Millisecond * 5)
-		go tide.Beat()
+		go tide.engineImpl(false)
 		if err := stepDown(tide, wanted); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if tide.QueueLen() != 0 {
-		t.Fatalf("the length of tide.cmdQueue should be 0. len: %d", tide.QueueLen())
+	if tide.Len() != 0 {
+		t.Fatalf("the length should be 0. len: %d", tide.Len())
 	}
 	if v := h.N(); v != 12 {
 		t.Fatalf("h.n should be 12. h.n: %d", v)
 	}
 }
 
-func TestTide_NilFn(t *testing.T) {
-	defer func() {
-		_ = recover()
+func TestTide_Panic(t *testing.T) {
+	func() {
+		defer func() {
+			_ = recover()
+		}()
+		NewTide("test", 1, time.Second, nil)
+		t.Fatal("no panic")
 	}()
-	NewTide("test", 1, time.Second, nil)
-	t.Fatal("no panic")
+
+	func() {
+		defer func() {
+			_ = recover()
+		}()
+		var h handler
+		tide := NewTide("test", 1, time.Second, h.Func, WithHandDriven(time.Now))
+		tide.Launch()
+		t.Fatal("no panic")
+	}()
+
+	func() {
+		fn := func(arr []live.Data) {
+			panic("beta")
+		}
+		scav := slog.NewScavenger()
+		tide := NewTide("test", 1, time.Second, fn, WithLogger(scav), WithHandDriven(time.Now))
+		tide.Push(live.WrapInt(100))
+		_ = tide.Flush(context.Background())
+		if scav.Len() != 1 {
+			t.Fatal(`scav.Len() != 1`)
+		}
+		if !scav.StringExists(" panic: ") {
+			t.Fatal(`!scav.StringExists(" panic: ")`)
+		}
+	}()
 }
 
 func TestTide_Stress(t *testing.T) {
-	scav := slog.NewScavenger()
 	var h handler
 	c := newClock()
-	tide := NewTide("test", 10, time.Second*10, h.F, WithLogger(scav), WithManualDriving(c.Now), withStepByStep())
+	scav := slog.NewScavenger()
+	tide := NewTide("test", 10, time.Second*10, h.Func, WithLogger(scav),
+		WithHandDriven(c.Now), withStepByStep())
 
-	liveHelper := live.NewHelper(nil)
-	const numGoroutines = 2000
+	const numGoroutines = 1000
 	const maxNumJobs = 1000
 	var total int64
 	var wg sync.WaitGroup
@@ -182,18 +210,20 @@ func TestTide_Stress(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			time.Sleep(time.Duration(rand.Intn(20)) * time.Millisecond)
 			n := rand.Intn(maxNumJobs)
 			atomic.AddInt64(&total, int64(n))
 			for j := 0; j < n; j++ {
-				tide.Push(liveHelper.WrapInt(j))
+				tide.Push(live.WrapInt(j))
+				if j > 0 && j%100 == 0 {
+					runtime.Gosched()
+				}
 			}
 		}()
 	}
 
 	wg.Wait()
 	c.Add(time.Millisecond * 20)
-	go tide.Beat()
+	go tide.engineImpl(false)
 	if err := stepDown(tide, int(atomic.LoadInt64(&total))); err != nil {
 		t.Fatal(err)
 	}
@@ -209,47 +239,47 @@ func TestTide_Stress(t *testing.T) {
 }
 
 func TestTide_PushUnique(t *testing.T) {
-	scav := slog.NewScavenger()
 	var h handler
 	c := newClock()
-	tide := NewTide("test", 10, time.Millisecond, h.F, WithLogger(scav), WithManualDriving(c.Now), withStepByStep())
+	scav := slog.NewScavenger()
+	tide := NewTide("test", 10, time.Millisecond, h.Func, WithLogger(scav),
+		WithHandDriven(c.Now), withStepByStep())
 
-	liveHelper := live.NewHelper(nil)
-	tide.PushUnique(liveHelper.WrapInt(1), 100, false)
-	if tide.QueueLen() != 1 {
-		t.Fatal("tide.QueueLen() != 1")
+	tide.PushUnique(live.WrapInt(1), 100, false)
+	if tide.Len() != 1 {
+		t.Fatal("tide.Len() != 1")
 	}
-	tide.PushUnique(liveHelper.WrapInt(1), 100, false)
-	if tide.QueueLen() != 1 {
-		t.Fatal("tide.QueueLen() != 1")
+	tide.PushUnique(live.WrapInt(1), 100, false)
+	if tide.Len() != 1 {
+		t.Fatal("tide.Len() != 1")
 	}
-	tide.PushUnique(liveHelper.WrapInt(2), 200, false)
-	if tide.QueueLen() != 2 {
-		t.Fatal("tide.QueueLen() != 2")
+	tide.PushUnique(live.WrapInt(2), 200, false)
+	if tide.Len() != 2 {
+		t.Fatal("tide.Len() != 2")
 	}
-	tide.PushUnique(liveHelper.WrapInt(5), 200, false)
-	if tide.QueueLen() != 2 {
-		t.Fatal("tide.QueueLen() != 2")
+	tide.PushUnique(live.WrapInt(5), 200, false)
+	if tide.Len() != 2 {
+		t.Fatal("tide.Len() != 2")
 	}
-	if tide.dq.Peek(1).ToInt() != 2 {
-		t.Fatal("tide.dq.Peek(1).ToInt() != 2")
+	if tide.dq.Peek(1).Int() != 2 {
+		t.Fatal("tide.dq.Peek(1).Int() != 2")
 	}
-	tide.PushUnique(liveHelper.WrapInt(5), 200, true)
-	if tide.QueueLen() != 2 {
-		t.Fatal("tide.QueueLen() != 2")
+	tide.PushUnique(live.WrapInt(5), 200, true)
+	if tide.Len() != 2 {
+		t.Fatal("tide.Len() != 2")
 	}
-	if tide.dq.Peek(1).ToInt() != 5 {
-		t.Fatal("tide.dq.Peek(1).ToInt() != 5")
+	if tide.dq.Peek(1).Int() != 5 {
+		t.Fatal("tide.dq.Peek(1).Int() != 5")
 	}
 
-	tide.Push(liveHelper.WrapInt(1))
-	tide.Push(liveHelper.WrapInt(2))
-	if tide.QueueLen() != 4 {
-		t.Fatal("tide.QueueLen() != 4")
+	tide.Push(live.WrapInt(1))
+	tide.Push(live.WrapInt(2))
+	if tide.Len() != 4 {
+		t.Fatal("tide.Len() != 4")
 	}
 
 	c.Add(time.Millisecond)
-	go tide.Beat()
+	go tide.engineImpl(false)
 	if err := stepDown(tide, 4); err != nil {
 		t.Fatal(err)
 	}
@@ -263,16 +293,14 @@ func TestTide_PushUnique(t *testing.T) {
 }
 
 func TestTide_Shutdown1(t *testing.T) {
-	var log slog.DumbLogger
 	var h handler
-	tide := NewTide("test", 10, time.Second*10, h.F, WithLogger(&log), WithBeatInterval(time.Millisecond))
-	liveHelper := live.NewHelper(nil)
-	tide.Push(liveHelper.WrapInt(100))
-	tide.Push(liveHelper.WrapInt(200))
-	tide.Push(liveHelper.WrapInt(300))
+	scav := slog.NewScavenger()
+	tide := NewTide("test", 10, time.Second*10, h.Func, WithLogger(scav), WithBeatInterval(time.Millisecond))
+	tide.Push(live.WrapInt(100))
+	tide.Push(live.WrapInt(200))
+	tide.Push(live.WrapInt(300))
 
 	tide.Launch()
-	time.Sleep(time.Millisecond * 20)
 	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Millisecond*100)
 	defer cancel1()
 	if err := tide.Shutdown(ctx1); err != nil {
@@ -281,19 +309,20 @@ func TestTide_Shutdown1(t *testing.T) {
 	if h.N() != 3 {
 		t.Fatal("h.N() != 3")
 	}
+	if !scav.StringExists("stopped") {
+		t.Fatal(`!scav.StringExists("stopped")`)
+	}
 }
 
 func TestTide_Shutdown2(t *testing.T) {
-	var log slog.DumbLogger
-	sleep := func(arr []live.Data) {
-		time.Sleep(time.Millisecond * 100)
-	}
+	var h handler
 	c := newClock()
-	tide := NewTide("test", 10, time.Second*10, sleep, WithLogger(&log), WithManualDriving(c.Now), withStepByStep())
-	liveHelper := live.NewHelper(nil)
-	tide.Push(liveHelper.WrapInt(100))
-	tide.Push(liveHelper.WrapInt(200))
-	tide.Push(liveHelper.WrapInt(300))
+	logger := slog.NewDumbLogger()
+	tide := NewTide("test", 10, time.Second*10, h.Func, WithLogger(logger),
+		WithHandDriven(c.Now), withStepByStep())
+	tide.Push(live.WrapInt(100))
+	tide.Push(live.WrapInt(200))
+	tide.Push(live.WrapInt(300))
 
 	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Millisecond)
 	defer cancel1()
@@ -302,17 +331,15 @@ func TestTide_Shutdown2(t *testing.T) {
 	}
 }
 
-func TestTide_Flush(t *testing.T) {
-	var log slog.DumbLogger
+func TestTide_Flush1(t *testing.T) {
 	var h handler
-	tide := NewTide("test", 10, time.Second*10, h.F, WithLogger(&log), WithBeatInterval(time.Millisecond))
-	liveHelper := live.NewHelper(nil)
-	tide.Push(liveHelper.WrapInt(100))
-	tide.Push(liveHelper.WrapInt(200))
-	tide.Push(liveHelper.WrapInt(300))
+	logger := slog.NewDumbLogger()
+	tide := NewTide("test", 10, time.Second*10, h.Func, WithLogger(logger), WithBeatInterval(time.Millisecond))
+	tide.Push(live.WrapInt(100))
+	tide.Push(live.WrapInt(200))
+	tide.Push(live.WrapInt(300))
 
 	tide.Launch()
-	time.Sleep(time.Millisecond * 20)
 	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Millisecond*100)
 	defer cancel1()
 	if err := tide.Flush(ctx1); err != nil {
@@ -320,5 +347,84 @@ func TestTide_Flush(t *testing.T) {
 	}
 	if h.N() != 3 {
 		t.Fatal("h.N() != 3")
+	}
+}
+
+func TestTide_Flush2(t *testing.T) {
+	fn := func(arr []live.Data) {
+		time.Sleep(time.Millisecond * 50)
+	}
+	logger := slog.NewDumbLogger()
+	tide := NewTide("test", 10, time.Second*10, fn, WithLogger(logger), WithBeatInterval(time.Millisecond))
+	tide.Push(live.WrapInt(100))
+	tide.Launch()
+
+	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel1()
+	if err := tide.Flush(ctx1); err == nil {
+		t.Fatal(`err == nil`)
+	} else if !os.IsTimeout(err) {
+		t.Fatal(`!os.IsTimeout(err)`)
+	}
+}
+
+func TestTide_Flush3(t *testing.T) {
+	var sleeping int64
+	fn := func(arr []live.Data) {
+		atomic.StoreInt64(&sleeping, 1)
+		time.Sleep(time.Millisecond * 50)
+	}
+	logger := slog.NewDumbLogger()
+	tide := NewTide("test", 10, time.Second*10, fn, WithLogger(logger), WithBeatInterval(time.Millisecond))
+	tide.Push(live.WrapInt(100))
+	tide.Launch()
+
+	go func() {
+		_ = tide.Flush(context.Background())
+	}()
+
+	for atomic.LoadInt64(&sleeping) == 0 {
+		runtime.Gosched()
+	}
+
+	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel1()
+	if err := tide.Flush(ctx1); err == nil {
+		t.Fatal(`err == nil`)
+	} else if !os.IsTimeout(err) {
+		t.Fatal(`!os.IsTimeout(err)`)
+	}
+}
+
+func TestTide_Flush4(t *testing.T) {
+	var h handler
+	tide := NewTide("test", 10, time.Second*10, h.Func, WithHandDriven(time.Now))
+	tide.Push(live.WrapInt(100))
+	tide.Push(live.WrapInt(200))
+	tide.Push(live.WrapInt(300))
+
+	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Millisecond*100)
+	defer cancel1()
+	if err := tide.Flush(ctx1); err != nil {
+		t.Fatal(err)
+	}
+	if h.N() != 3 {
+		t.Fatal("h.N() != 3")
+	}
+}
+
+func TestTide_Flush5(t *testing.T) {
+	fn := func(arr []live.Data) {
+		time.Sleep(time.Millisecond * 50)
+	}
+	tide := NewTide("test", 10, time.Second*10, fn, WithHandDriven(time.Now))
+	tide.Push(live.WrapInt(100))
+
+	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel1()
+	if err := tide.Flush(ctx1); err == nil {
+		t.Fatal(`err == nil`)
+	} else if !os.IsTimeout(err) {
+		t.Fatal(`!os.IsTimeout(err)`)
 	}
 }

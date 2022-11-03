@@ -3,13 +3,13 @@ package tide
 import (
 	"context"
 	"fmt"
+	"github.com/edwingeng/deque/v2"
+	"github.com/edwingeng/live"
+	"github.com/edwingeng/slog"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/edwingeng/live"
-	"github.com/edwingeng/slog"
 )
 
 type Func func(arr []live.Data)
@@ -21,13 +21,13 @@ type flushSignal struct {
 
 type Tide struct {
 	slog.Logger
-	name           string
-	bManualDriving bool
-	fNow           func() time.Time
-	beatInterval   time.Duration
-	maxLen         int
-	maxDelay       time.Duration
-	fn             Func
+	name         string
+	handDriven   bool
+	fNow         func() time.Time
+	beatInterval time.Duration
+	maxLen       int
+	maxDelay     time.Duration
+	fn           Func
 
 	stepByStep bool
 	chStep     chan int
@@ -39,8 +39,8 @@ type Tide struct {
 	numProcessed int64
 
 	mu     sync.Mutex
-	unique map[interface{}]int
-	dq     *Deque
+	unique map[any]int
+	dq     *deque.Deque[live.Data]
 
 	startTime time.Time
 }
@@ -52,13 +52,13 @@ func NewTide(name string, maxLen int, maxDelay time.Duration, fn Func, opts ...O
 	tide = &Tide{
 		name:         name,
 		fNow:         time.Now,
-		Logger:       slog.ConsoleLogger{},
+		Logger:       slog.NewDevelopmentConfig().MustBuild(),
 		beatInterval: time.Millisecond * 100,
 		maxLen:       maxLen,
 		maxDelay:     maxDelay,
 		fn:           fn,
-		dq:           NewDeque(),
-		unique:       make(map[interface{}]int),
+		dq:           deque.NewDeque[live.Data](),
+		unique:       make(map[any]int),
 	}
 	for _, opt := range opts {
 		opt(tide)
@@ -67,18 +67,21 @@ func NewTide(name string, maxLen int, maxDelay time.Duration, fn Func, opts ...O
 }
 
 func (x *Tide) Launch() {
-	if x.bManualDriving {
-		panic(fmt.Errorf("<tide.%s> WithManualDriving'd Tide cannot be launched", x.name))
+	if x.handDriven {
+		panic(fmt.Errorf("the tide %q is hand-driven", x.name))
 	}
 	x.once.Do(func() {
 		x.tick = time.NewTicker(x.beatInterval)
-		x.chFlush = make(chan flushSignal, 16)
+		x.chFlush = make(chan flushSignal)
 		go x.engine()
 	})
 }
 
 func (x *Tide) engine() {
 	x.Infof("<tide.%s> started", x.name)
+	defer func() {
+		x.Infof("<tide.%s> stopped", x.name)
+	}()
 	for {
 		select {
 		case <-x.tick.C:
@@ -94,6 +97,7 @@ func (x *Tide) engine() {
 }
 
 func (x *Tide) engineImpl(force bool) {
+	var a []live.Data
 	x.mu.Lock()
 	n := x.dq.Len()
 	t := x.startTime
@@ -102,9 +106,9 @@ func (x *Tide) engineImpl(force bool) {
 		goto exit
 	}
 
-	if n >= x.maxLen || !t.IsZero() && x.fNow().Sub(t) >= x.maxDelay || force {
+	if n >= x.maxLen || x.fNow().Sub(t) >= x.maxDelay || force {
 		x.mu.Lock()
-		a := x.dq.DequeueMany(0)
+		a = x.dq.DequeueMany(0)
 		x.startTime = time.Time{}
 		if len(x.unique) > 0 {
 			for k := range x.unique {
@@ -112,14 +116,10 @@ func (x *Tide) engineImpl(force bool) {
 			}
 		}
 		x.mu.Unlock()
-		if len(a) > 0 {
-			x.process(a)
-			n = len(a)
-		}
-	} else {
-		n = 0
+		x.processJobs(a)
 	}
 
+	n = len(a)
 exit:
 	if x.stepByStep {
 		select {
@@ -130,14 +130,15 @@ exit:
 	}
 }
 
-func (x *Tide) process(a []live.Data) {
+func (x *Tide) processJobs(a []live.Data) {
 	defer func() {
 		if r := recover(); r != nil {
 			x.Error(fmt.Sprintf("<tide.%s> panic: %+v\n%s", x.name, r, debug.Stack()))
 		}
 	}()
+	n := int64(len(a))
+	atomic.AddInt64(&x.numProcessed, n)
 	x.fn(a)
-	atomic.AddInt64(&x.numProcessed, int64(len(a)))
 }
 
 func (x *Tide) Shutdown(ctx context.Context) error {
@@ -149,14 +150,19 @@ func (x *Tide) Flush(ctx context.Context) error {
 }
 
 func (x *Tide) flushImpl(ctx context.Context, quit bool) error {
-	if x.bManualDriving {
-		ch := make(chan struct{})
+	if x.handDriven {
+		if _, ok := ctx.Deadline(); !ok {
+			x.engineImpl(true)
+			return nil
+		}
+
+		done := make(chan struct{})
 		go func() {
 			x.engineImpl(true)
-			ch <- struct{}{}
+			done <- struct{}{}
 		}()
 		select {
-		case <-ch:
+		case <-done:
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
@@ -166,10 +172,14 @@ func (x *Tide) flushImpl(ctx context.Context, quit bool) error {
 	if quit {
 		x.tick.Stop()
 	}
-	signal := flushSignal{done: make(chan struct{}), quit: quit}
-	x.chFlush <- signal
+	done := make(chan struct{})
 	select {
-	case <-signal.done:
+	case x.chFlush <- flushSignal{done: done, quit: quit}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-done:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -178,15 +188,16 @@ func (x *Tide) flushImpl(ctx context.Context, quit bool) error {
 
 func (x *Tide) Push(v live.Data) {
 	x.mu.Lock()
-	switch x.dq.Empty() {
-	case true:
-		x.startTime = x.fNow()
-	}
 	x.dq.Enqueue(v)
+	if !x.startTime.IsZero() {
+		x.mu.Unlock()
+		return
+	}
+	x.startTime = x.fNow()
 	x.mu.Unlock()
 }
 
-func (x *Tide) PushUnique(v live.Data, hint interface{}, overwrite bool) {
+func (x *Tide) PushUnique(v live.Data, hint any, overwrite bool) {
 	x.mu.Lock()
 	if idx, ok := x.unique[hint]; ok {
 		if overwrite {
@@ -195,17 +206,18 @@ func (x *Tide) PushUnique(v live.Data, hint interface{}, overwrite bool) {
 		x.mu.Unlock()
 		return
 	}
-	switch x.dq.Empty() {
-	case true:
-		x.startTime = x.fNow()
-	}
+
 	x.dq.Enqueue(v)
-	n := x.dq.Len()
-	x.unique[hint] = n - 1
+	x.unique[hint] = x.dq.Len() - 1
+	if !x.startTime.IsZero() {
+		x.mu.Unlock()
+		return
+	}
+	x.startTime = x.fNow()
 	x.mu.Unlock()
 }
 
-func (x *Tide) QueueLen() int {
+func (x *Tide) Len() int {
 	x.mu.Lock()
 	n := x.dq.Len()
 	x.mu.Unlock()
@@ -214,14 +226,6 @@ func (x *Tide) QueueLen() int {
 
 func (x *Tide) NumProcessed() int64 {
 	return atomic.LoadInt64(&x.numProcessed)
-}
-
-func (x *Tide) Beat() {
-	if x.bManualDriving {
-		x.engineImpl(false)
-	} else {
-		panic(fmt.Errorf("<tide.%s> WithManualDriving is missing", x.name))
-	}
 }
 
 type Option func(tide *Tide)
@@ -238,9 +242,9 @@ func WithBeatInterval(interval time.Duration) Option {
 	}
 }
 
-func WithManualDriving(fNow func() time.Time) Option {
+func WithHandDriven(fNow func() time.Time) Option {
 	return func(tide *Tide) {
-		tide.bManualDriving = true
+		tide.handDriven = true
 		tide.fNow = fNow
 	}
 }
